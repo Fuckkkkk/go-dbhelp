@@ -209,6 +209,9 @@ func row2mapStr(rows *sql.Rows, fields []string) (resultsMap map[string]string, 
 	return result, nil
 }
 //把Rows多行转成一个[]*struct{}
+//type TPayChannelServer struct {FChannelID sql.NullString}
+//Demo  lArr := []*TPayChannelServer{}
+//dbhelp.RowsToArrStructKeepNull(lRows,&lArr)
 func RowsToArrStructKeepNull(rows *sql.Rows, destArr interface{}) error {
 	//是特别注意数据库字断为null其结构体类型要用 NullString,NullInt等结构,除非数据库无null值
 	//非指针和空对象不可转化
@@ -269,7 +272,12 @@ func RowsToArrStructKeepNull(rows *sql.Rows, destArr interface{}) error {
 	return  nil
 }
 
+//type TPayChannelServer struct {FChannelID string}
+//Demo  lArr := []*TPayChannelServer{}
+//dbhelp.RowsToArrStructkillNull(lRows,&lArr)
 func RowsToArrStructkillNull(rows *sql.Rows, destArr interface{}) error {
+	//把ROWS转化为Struct 不管数据库是不是null值
+	//转化成标准的结构体
 	//非指针和空对象不可转化
 	rv := reflect.ValueOf(destArr)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
@@ -278,7 +286,7 @@ func RowsToArrStructkillNull(rows *sql.Rows, destArr interface{}) error {
 	//非数组对象不可转化
 	recordsValue := rv.Elem()
 	if recordsValue.Kind() != reflect.Slice {
-		return errors.New("请传了数组对象")
+		return errors.New("请传数组对象")
 	}
 	var itemType reflect.Type
 	if recordsValue.Type().Elem().Kind() == reflect.Ptr {
