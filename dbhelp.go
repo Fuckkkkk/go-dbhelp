@@ -8,21 +8,18 @@ import (
 	"strconv"
 	"time"
 )
+
+type SQLKind uint
 const (
-	DB_NVARCHAR string="NVARCHAR"
-	DB_BIGINT string="BIGINT"
-	DB_INT string="INT"
-	DB_FLOAT string="FLOAT"
-	DB_DECIMAL string="DECIMAL"
-	DB_VARCHAR string="VARCHAR"
-	DB_CHAR string="CHAR"
-	DB_NCHAR string="NCHAR"
-	DB_DATETIME string="DATETIME"
-	DB_DATETIME2 string="DATETIME2"
-	DB_BIT string ="BIT"
-	DB_TEXT string="TEXT"
-	DB_BINARY string="BINARY"
+	NullStringKind SQLKind = iota
+	NullInt64Kind
+	NullInt32Kind
+	NullFloat64Kind
+	NullBoolKind
+	NullTimeKind
+	NullByteKind
 )
+
 var (
 	c_EMPTY_STRING       string
 	c_BOOL_DEFAULT       bool
@@ -299,38 +296,51 @@ func RowsToArrStructkillNull(rows *sql.Rows, destArr interface{}) error {
 	}
 	//跟据字段类型构造接收器
 	arrayOfResults := []interface{}{}
-	arrayofcolumnType := []string{}
+	arrayofcolumnType := []SQLKind{}
 	for iIndex, _ := range columns {
 		columnType :=  columnTypes[iIndex]
-		switch columnType.DatabaseTypeName() {
-		case DB_NVARCHAR,DB_VARCHAR,DB_CHAR,DB_NCHAR,DB_TEXT:
-			lNullString := &sql.NullString{}
-			arrayOfResults = append(arrayOfResults,lNullString)
-			arrayofcolumnType  = append(arrayofcolumnType,"NullString")
-		case DB_INT,DB_BIGINT:
+		filetype :=    columnType.ScanType()
+		switch filetype.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 			lNullInt64  := &sql.NullInt64{}
 			arrayOfResults = append(arrayOfResults,lNullInt64)
-			arrayofcolumnType  = append(arrayofcolumnType,"NullInt64")
-		case DB_BIT:
-			lNullBool := &sql.NullBool{}
-			arrayOfResults = append(arrayOfResults,lNullBool)
-			arrayofcolumnType  = append(arrayofcolumnType,"lNullBool")
-		case DB_FLOAT,DB_DECIMAL:
+			arrayofcolumnType  = append(arrayofcolumnType,NullInt64Kind)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			lNullInt64  := &sql.NullInt64{}
+			arrayOfResults = append(arrayOfResults,lNullInt64)
+			arrayofcolumnType  = append(arrayofcolumnType,NullInt64Kind)
+		case reflect.Float32, reflect.Float64:
 			lNullFloat64 := &sql.NullFloat64{}
 			arrayOfResults = append(arrayOfResults,lNullFloat64)
-			arrayofcolumnType  = append(arrayofcolumnType,"NullFloat64")
-		case DB_DATETIME,DB_DATETIME2:
-			lNullTime  := &sql.NullTime{}
-			arrayOfResults = append(arrayOfResults,lNullTime)
-			arrayofcolumnType  = append(arrayofcolumnType,"NullTime")
-		case DB_BINARY:
-			lbyte := []byte{}
-			arrayOfResults = append(arrayOfResults,&lbyte)
-			arrayofcolumnType  = append(arrayofcolumnType,"byte")
+			arrayofcolumnType  = append(arrayofcolumnType,NullFloat64Kind)
+		case reflect.String:
+			lNullString := &sql.NullString{}
+			arrayOfResults = append(arrayOfResults,lNullString)
+			arrayofcolumnType  = append(arrayofcolumnType,NullStringKind)
+		case reflect.Array, reflect.Slice:
+			switch filetype.Elem().Kind() {
+			case reflect.Uint8:
+				lbyte := []byte{}
+				arrayOfResults = append(arrayOfResults,&lbyte)
+				arrayofcolumnType  = append(arrayofcolumnType,NullByteKind)
+			default:
+				return errors.New("未定义的类型,请完善->"+filetype.Elem().Kind().String())
+			}
+		case reflect.Struct:
+			if filetype.ConvertibleTo(TimeType) {
+				lNullTime  := &sql.NullTime{}
+				arrayOfResults = append(arrayOfResults,lNullTime)
+				arrayofcolumnType  = append(arrayofcolumnType,NullTimeKind)
+			} else {
+				return errors.New("未定义的类型,请完善->"+filetype.Kind().String())
+			}
+		case reflect.Bool:
+			lNullBool := &sql.NullBool{}
+			arrayOfResults = append(arrayOfResults,lNullBool)
+			arrayofcolumnType  = append(arrayofcolumnType,NullBoolKind)
 		default:
-			return errors.New("未定义的类型,请完善->"+columnType.DatabaseTypeName())
+			return errors.New("未定义的类型,请完善->"+filetype.Kind().String())
 		}
-
 	}
 	zeroValue := reflect.Value{}
 	for rows.Next() {
@@ -348,7 +358,7 @@ func RowsToArrStructkillNull(rows *sql.Rows, destArr interface{}) error {
 			if field != zeroValue {
 				if field.CanSet() {
 					switch arrayofcolumnType[iIndex] {
-					case "NullString":
+					case NullStringKind:
 						lNullString, lok := arrayOfResults[iIndex].(*sql.NullString)
 						if lok {
 							if !lNullString.Valid {
@@ -357,7 +367,7 @@ func RowsToArrStructkillNull(rows *sql.Rows, destArr interface{}) error {
 								field.SetString(lNullString.String)
 							}
 						}
-					case "NullInt64","NullInt32":
+					case NullInt32Kind,NullInt64Kind:
 						lNullInt64, lok := arrayOfResults[iIndex].(*sql.NullInt64)
 						if lok {
 							if !lNullInt64.Valid {
@@ -366,7 +376,7 @@ func RowsToArrStructkillNull(rows *sql.Rows, destArr interface{}) error {
 								field.SetInt(lNullInt64.Int64)
 							}
 						}
-					case "NullFloat64":
+					case NullFloat64Kind:
 						lNullFloat64, lok := arrayOfResults[iIndex].(*sql.NullFloat64)
 						if lok {
 							if !lNullFloat64.Valid {
@@ -375,7 +385,7 @@ func RowsToArrStructkillNull(rows *sql.Rows, destArr interface{}) error {
 								field.SetFloat(lNullFloat64.Float64)
 							}
 						}
-					case "NullBool":
+					case NullBoolKind:
 						lNullBool, lok := arrayOfResults[iIndex].(*sql.NullBool)
 						if lok {
 							if !lNullBool.Valid {
@@ -384,7 +394,7 @@ func RowsToArrStructkillNull(rows *sql.Rows, destArr interface{}) error {
 								field.SetBool(lNullBool.Bool)
 							}
 						}
-					case "NullTime":
+					case NullTimeKind:
 						lNullTime, lok := arrayOfResults[iIndex].(*sql.NullTime)
 						if lok {
 							if !lNullTime.Valid {
@@ -393,11 +403,10 @@ func RowsToArrStructkillNull(rows *sql.Rows, destArr interface{}) error {
 
 							}
 						}
-					case "byte":
+					case NullByteKind:
 						lbyte, lok := arrayOfResults[iIndex].(*[]byte)
 						fmt.Println(lbyte,lok)
 					}
-
 				}
 			}
 		} //添加切片
